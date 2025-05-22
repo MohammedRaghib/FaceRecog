@@ -3,6 +3,8 @@ from rest_framework.decorators import api_view
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from facenet_pytorch import InceptionResnetV1, MTCNN
+from django.http import JsonResponse
+from rest_framework import status
 from PIL import Image
 from .models import Worker
 import numpy as np
@@ -44,45 +46,45 @@ def update_faiss_index():
 
 update_faiss_index()
 
+@api_view(["POST"])
 def worker_registration(request):
     if request.method == "POST":
         name = request.POST.get("name")
         image = request.FILES.get("image")
 
         if not name or not image:
-            return render(request, "RegisterWorker.html", {"message": "Name and image are required."})
+            return JsonResponse({"message": "Name and image are required.", "success": False}, status=status.HTTP_400_BAD_REQUEST)
 
         img = Image.open(image).convert("RGB")
         face = mtcnn(img)
         if face is None:
-            return render(request, "RegisterWorker.html", {"message": "No face detected."})
+            return JsonResponse({"message": "No face detected.", "success": False}, status=status.HTTP_404_NOT_FOUND)
 
         embedding = facenet(face.unsqueeze(0)).detach().numpy().tolist()
 
         Worker.objects.create(name=name, face_encoding=embedding)
 
         update_faiss_index()
-        return render(request, "RegisterWorker.html", {"message": f"Worker {name} registered successfully!"})
+        return JsonResponse({"message": f"Worker {name} registered successfully!", "success": True}, status=status.HTTP_200_OK)
 
-    return render(request, "RegisterWorker.html")
-
+@api_view(["POST"])
 def post_face_to_compare(request):
     if request.method == "POST":
         img = request.FILES.get("image")
         if not img:
-            return render(request, "CompareFace.html", {"message": "Image is required."})
+            return JsonResponse({"message": "Image is required.", "matchFound": False, "success": False}, status=status.HTTP_400_BAD_REQUEST)
 
         img = Image.open(img).convert("RGB")
         face = mtcnn(img)
         if face is None:
-            return render(request, "CompareFace.html", {"message": "No face detected."})
+            return JsonResponse({"message": "No face detected.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
         uploaded_embedding = facenet(face.unsqueeze(0)).detach().numpy()[0] 
         uploaded_embedding /= np.linalg.norm(uploaded_embedding)
 
         workers = Worker.objects.all()
         if not workers:
-            return render(request, "CompareFace.html", {"message": "No registered workers available for comparison."})
+            return JsonResponse({"message": "No registered workers available for comparison.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
         best_distance = float("inf")
         best_worker = None
@@ -106,12 +108,7 @@ def post_face_to_compare(request):
         update_faiss_index()
 
         if best_worker and best_distance < threshold:
-            return render(request, "CompareFace.html", {
-                "matched_worker": best_worker.name,
-                "distance": round(best_distance, 4)
-            })
+            return JsonResponse({"matched_worker": best_worker.name,"distance": round(best_distance, 4), "matchFound": True, "success": True}, status=status.HTTP_200_OK)
 
         else:
-            return render(request, "CompareFace.html", {"message": "No match found."})
-
-    return render(request, "CompareFace.html")
+            return JsonResponse({"message": "No match found.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
