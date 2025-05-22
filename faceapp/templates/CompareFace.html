@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare Faces</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(to right, #222034, #5a547a);
+            font-family: 'Poppins', sans-serif;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+            width: 380px;
+            max-width: 100%;
+            text-align: center;
+        }
+
+        h2 {
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        label {
+            font-weight: 400;
+            display: block;
+            margin-top: 12px;
+            text-align: left;
+        }
+
+        input[type="file"] {
+            width: 90%;
+            padding: 12px;
+            margin-top: 6px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #29a19c;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: 0.3s;
+        }
+
+        button:hover {
+            background: #1f7f7b;
+            box-shadow: 0 0 10px rgba(41, 161, 156, 0.5);
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(8px);
+        }
+
+        .match-found {
+            color: #6ff36f;
+            font-weight: bold;
+        }
+
+        .no-match {
+            color: #ff4b5c;
+            font-weight: bold;
+        }
+
+        @media screen and (max-width: 760px) {
+            .container {
+                max-width: 90%;
+                width: 90% !important;
+            }
+            
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Compare Faces</h2>
+        <form action="" method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <label for="image">Upload Image for Comparison:</label>
+            <input type="file" id="image" name="image" accept="image/*" required>
+
+            <button type="submit">Compare</button>
+        </form>
+
+        {% if matched_worker %}
+        <div class="result">
+            <h3 class="match-found">Match Found:</h3>
+            <p>Matched Worker: {{ matched_worker }}</p>
+        </div>
+        {% elif message %}
+        <div class="result no-match">
+            <p>{{ message }}</p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+
+</html>
