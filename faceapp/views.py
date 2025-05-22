@@ -86,7 +86,7 @@ def post_face_to_compare(request):
 
         best_distance = float("inf")
         best_worker = None
-        threshold = 0.7
+        threshold = 0.75
 
         for worker in workers:
             try:
