@@ -69,7 +69,7 @@ def worker_registration(request):
         update_faiss_index()
         return JsonResponse({"message": f"Worker {name} registered successfully!", "success": True}, status=status.HTTP_200_OK)
 
-@csrf_exempt
+# @csrf_exempt
 @api_view(["POST"])
 def post_face_to_compare(request):
     if request.method == "POST":

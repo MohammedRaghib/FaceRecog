@@ -4,4 +4,4 @@ from .models import Worker
 class WorkerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Worker
-        fields = ['id', 'name', 'face_encoding']
+        fields = ['id', 'name']

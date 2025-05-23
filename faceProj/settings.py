@@ -81,10 +81,9 @@ TEMPLATES = [
 WSGI_APPLICATION = 'faceProj.wsgi.application'
 
 REST_FRAMEWORK = {
-    "DEFAULT_RENDERER_CLASSES": [
-        # "rest_framework.renderers.JSONRenderer",
-        "rest_framework.renderers.BrowsableAPIRenderer",  # Enables the browsable API view!
-    ],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ]
 }
 
 
