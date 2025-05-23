@@ -2,6 +2,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.views.decorators.csrf import csrf_exempt
 from facenet_pytorch import InceptionResnetV1, MTCNN
 from django.http import JsonResponse
 from rest_framework import status
@@ -68,57 +69,49 @@ def worker_registration(request):
         update_faiss_index()
         return JsonResponse({"message": f"Worker {name} registered successfully!", "success": True}, status=status.HTTP_200_OK)
 
-def preprocess_image(img):
-    """ Align and convert image to tensor format """
-    img = img.convert("RGB")
-    face = mtcnn(img)
-    if face is None:
-        return None
-    return facenet(face.unsqueeze(0)).detach().numpy()[0]
-
-def calculate_cosine_similarity(embedding1, embedding2):
-    """ Compute cosine similarity between two embeddings """
-    return np.dot(embedding1, embedding2) / (np.linalg.norm(embedding1) * np.linalg.norm(embedding2))
-
+@csrf_exempt
+@api_view(["POST"])
 def post_face_to_compare(request):
     if request.method == "POST":
         img = request.FILES.get("image")
         if not img:
             return JsonResponse({"message": "Image is required.", "matchFound": False, "success": False}, status=status.HTTP_400_BAD_REQUEST)
 
-        uploaded_embedding = preprocess_image(Image.open(img))
-        if uploaded_embedding is None:
+        img = Image.open(img).convert("RGB")
+        face = mtcnn(img)
+        if face is None:
             return JsonResponse({"message": "No face detected.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
+
+        uploaded_embedding = facenet(face.unsqueeze(0)).detach().numpy()[0] 
+        uploaded_embedding /= np.linalg.norm(uploaded_embedding)
 
         workers = Worker.objects.all()
         if not workers:
             return JsonResponse({"message": "No registered workers available for comparison.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
-        best_similarity = -1  
+        best_distance = float("inf")
         best_worker = None
-        threshold = 0.75 
+        threshold = 0.75
 
         for worker in workers:
             try:
-                worker_embeddings = np.array(worker.face_encoding) 
-                if len(worker_embeddings.shape) == 1: 
-                    worker_embeddings = worker_embeddings.reshape(1, -1)
-
-                avg_worker_embedding = np.mean(worker_embeddings, axis=0)
-                avg_worker_embedding /= np.linalg.norm(avg_worker_embedding)
-                similarity = calculate_cosine_similarity(uploaded_embedding, avg_worker_embedding)
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
+                worker_embedding = np.array(worker.face_encoding)
+                worker_embedding /= np.linalg.norm(worker_embedding)
+                distance = np.linalg.norm(uploaded_embedding - worker_embedding)
+            
+                if distance < best_distance:
+                    best_distance = distance
                     best_worker = worker
             except Exception as e:
                 print(f"Error processing worker {worker.name}: {e}")
                 continue
+        
+        print(best_distance)
+        print(best_worker)
+        update_faiss_index()
 
-        print("Best similarity:", round(best_similarity, 4))
-        print("Best matched worker:", best_worker)
+        if best_worker and best_distance < threshold:
+            return JsonResponse({"matched_worker": WorkerSerializer(best_worker).data,"distance": round(best_distance, 4), "matchFound": True, "success": True}, status=status.HTTP_200_OK)
 
-        if best_worker and best_similarity > threshold:
-            return JsonResponse({"matched_worker": WorkerSerializer(best_worker).data, "similarity": round(best_similarity, 4), "matchFound": True, "success": True}, status=status.HTTP_200_OK)
         else:
             return JsonResponse({"message": "No match found.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)

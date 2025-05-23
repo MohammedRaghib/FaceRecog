@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-uxik%3bu4113c^aiuwws^i!aj6o7vj2!i08@o)zp^ju+d$o7i1'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
@@ -55,6 +55,10 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8081", 
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8081",  
 ]
 
 ROOT_URLCONF = 'faceProj.urls'
