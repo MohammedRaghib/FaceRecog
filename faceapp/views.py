@@ -1,14 +1,16 @@
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.views.decorators.csrf import csrf_exempt
+# from django.contrib import messages
+# from django.views.decorators.csrf import csrf_exempt
+
 from facenet_pytorch import InceptionResnetV1, MTCNN
 from django.http import JsonResponse
+from django.contrib.auth import login, authenticate
 from rest_framework import status
 from PIL import Image
-from .models import Worker
-from .serializers import WorkerSerializer
+from .models import Worker, Tasks, Equipment, Attendance
+from .serializers import WorkerSerializer, TaskSerializer
 import numpy as np
 import faiss
 import os
@@ -115,3 +117,86 @@ def post_face_to_compare(request):
 
         else:
             return JsonResponse({"message": "No match found.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
+        
+
+@api_view(["GET"])
+def get_worker_task(request, personId):
+    if request.method == "GET":
+        if not personId:
+            return JsonResponse({"message": "Worker ID is required.", "success": False}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            worker = Worker.objects.get(person_id=personId)
+            tasks = Tasks.objects.filter(labourer=worker)
+            serialized_tasks = TaskSerializer(tasks, many=True).data
+            
+            return JsonResponse({"tasks": serialized_tasks, "success": True}, status=status.HTTP_200_OK)
+        except Worker.DoesNotExist:
+            return JsonResponse({"message": "Worker not found.", "success": False}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(["POST"])
+def create_attendance(request):
+    if request.method == "POST":
+        try:
+            data = request.POST
+
+            attendance = Attendance(
+                attendance_location=data.get('attendance_location'),
+                attendance_subject=data.get('attendance_subject_id'),
+                attendance_monitor=data.get('attendance_monitor_id'),
+                
+                attendance_is_check_in=data.get('attendance_is_check_in', False),
+                attendance_is_approved_by_supervisor=data.get('attendance_is_approved_by_supervisor', False),
+                attendance_is_entry_permitted=data.get('attendance_is_entry_permitted', False),
+                attendance_is_work_completed=data.get('attendance_is_work_completed', False),
+                attendance_is_equipment_returned=data.get('attendance_is_equipment_returned', False),
+                attendance_is_overtime_required=data.get('attendance_is_overtime_required', False),
+                attendance_is_overtime_approved=data.get('attendance_is_overtime_approved', False),
+                attendance_is_incomplete_checkout=data.get('attendance_is_incomplete_checkout', False),
+                attendance_is_forced_check_out=data.get('attendance_is_forced_check_out', False),
+                attendance_is_supervisor_checkout=data.get('attendance_is_supervisor_checkout', False),
+                attendance_has_been_checkout_by_supervisor=data.get('attendance_has_been_checkout_by_supervisor', False),
+                attendance_is_supervisor_checkin=data.get('attendance_is_supervisor_checkin', False),
+                attendance_is_unauthorized_entry=data.get('attendance_is_unauthorized_entry', False),
+                
+                attendance_access_token=data.get('attendance_access_token'),
+                attendance_duration_since_supervisor_checkout=data.get('attendance_duration_since_supervisor_checkout')
+            )
+            
+            attendance.save()
+            
+            return JsonResponse({
+                'success': True,
+                'attendance_id': attendance.id,
+                'message': 'Attendance record created successfully'
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["POST"])
+def user_login(request):
+    if request.method == "POST":
+        try:
+            data = request.POST
+
+            username = data.get('username')
+            password = data.get('password')
+
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                login(request, user)
+                curr_user = {
+                    'username': user.username,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'email': user.email,
+                    'role': 'supervisor'
+                }
+                return JsonResponse({'success': True, 'message': 'Login successful', 'user': curr_user}, status=status.HTTP_200_OK)
+            else:
+                return JsonResponse({'success': False, 'message': 'Invalid username or password'}, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
