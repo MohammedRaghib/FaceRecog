@@ -189,11 +189,12 @@ def user_login(request):
             if user is not None:
                 login(request, user)
                 curr_user = {
+                    'person_id': user.id,
                     'username': user.username,
                     'first_name': user.first_name,
                     'last_name': user.last_name,
                     'email': user.email,
-                    'role': 'supervisor'
+                    'role_name': 'supervisor'
                 }
                 return JsonResponse({'success': True, 'message': 'Login successful', 'user': curr_user}, status=status.HTTP_200_OK)
             else:
