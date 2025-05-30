@@ -1,9 +1,6 @@
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from django.shortcuts import render, redirect
-# from django.contrib import messages
-# from django.views.decorators.csrf import csrf_exempt
-
 from facenet_pytorch import InceptionResnetV1, MTCNN
 from django.http import JsonResponse
 from django.contrib.auth import login, authenticate
@@ -13,6 +10,7 @@ from .models import Worker, Tasks, Equipment, Attendance
 from .serializers import WorkerSerializer, TaskSerializer
 import numpy as np
 import faiss
+import json
 import os
 
 facenet = InceptionResnetV1(pretrained="vggface2").eval()
@@ -53,7 +51,7 @@ update_faiss_index()
 @api_view(["POST"])
 def worker_registration(request):
     if request.method == "POST":
-        name = request.POST.get("name")
+        name = request.data.get("name")
         image = request.FILES.get("image")
 
         if not name or not image:
@@ -138,7 +136,8 @@ def get_worker_task(request, personId):
 def create_attendance(request):
     if request.method == "POST":
         try:
-            data = request.POST
+            data = request.data
+            print(data)
 
             attendance = Attendance(
                 attendance_location=data.get('attendance_location'),
@@ -167,10 +166,11 @@ def create_attendance(request):
             
             return JsonResponse({
                 'success': True,
-                'attendance_id': attendance.id,
+                'attendance_id': attendance.attendance_id,
                 'message': 'Attendance record created successfully'
             }, status=status.HTTP_201_CREATED)
         except Exception as e:
+            print(e)
             return JsonResponse({
                 'success': False,
                 'message': str(e)
@@ -188,15 +188,7 @@ def user_login(request):
             user = authenticate(request, username=username, password=password)
             if user is not None:
                 login(request, user)
-                curr_user = {
-                    'person_id': user.id,
-                    'username': user.username,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'email': user.email,
-                    'role_name': 'supervisor'
-                }
-                return JsonResponse({'success': True, 'message': 'Login successful', 'user': curr_user}, status=status.HTTP_200_OK)
+                return JsonResponse({'success': True, 'message': 'Login successful', 'person_id': user.id, 'role_name': 'supervisor'}, status=status.HTTP_200_OK)
             else:
                 return JsonResponse({'success': False, 'message': 'Invalid username or password'}, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
