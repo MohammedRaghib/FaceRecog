@@ -137,7 +137,6 @@ def create_attendance(request):
     if request.method == "POST":
         try:
             data = request.data
-            print(data)
 
             attendance = Attendance(
                 attendance_location=data.get('attendance_location'),
