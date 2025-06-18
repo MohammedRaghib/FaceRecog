@@ -44,6 +44,9 @@ def update_faiss_index():
 
 update_faiss_index()
 
+def home(request):
+    return render(request, "Home.html")
+
 def worker_registration(request):
     if request.method == "POST":
         name = request.POST.get("name")
