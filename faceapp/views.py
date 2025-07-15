@@ -6,8 +6,8 @@ from django.http import JsonResponse
 from django.contrib.auth import login, authenticate
 from rest_framework import status
 from PIL import Image
-from .models import Worker, Tasks, Equipment, Attendance
-from .serializers import WorkerSerializer, TaskSerializer
+from .models import Worker
+from .serializers import WorkerSerializer
 import numpy as np
 import faiss
 import json
@@ -105,8 +105,9 @@ def post_face_to_compare(request):
                 print(f"Error processing worker {worker.name}: {e}")
                 continue
         
-        print(best_distance)
-        print(best_worker)
+        # print(best_distance)
+        # print(best_worker)
+        
         update_faiss_index()
 
         if best_worker and best_distance < threshold:
