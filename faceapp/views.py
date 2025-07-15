@@ -1,117 +1,115 @@
-from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from django.shortcuts import render, redirect
-from facenet_pytorch import InceptionResnetV1, MTCNN
-from django.http import JsonResponse
-from django.contrib.auth import login, authenticate
+from rest_framework.response import Response
 from rest_framework import status
+from django.http import JsonResponse
 from PIL import Image
+
+from facenet_pytorch import InceptionResnetV1, MTCNN
 from .models import Worker
 from .serializers import WorkerSerializer
+
 import numpy as np
 import faiss
-import json
-import os
 
 facenet = InceptionResnetV1(pretrained="vggface2").eval()
 mtcnn = MTCNN()
 
 index = None
+worker_id_list = []
 
-def update_faiss_index():
-    """ Refresh FAISS index safely with stored workers dynamically """
-    global index
+def build_faiss_index():
+    """Builds the FAISS index with current worker embeddings."""
+    global index, worker_id_list
 
-    workers = Worker.objects.all()
-
+    workers = Worker.objects.exclude(face_encoding=None)
     if not workers.exists():
         index = None
+        worker_id_list = []
         return
 
     try:
-        worker_embeddings = [np.array(w.face_encoding) for w in workers if w.face_encoding is not None]
-        
-        if len(worker_embeddings) == 0:
+        embeddings = [np.array(w.face_encoding, dtype='float32') for w in workers]
+        if not embeddings:
             index = None
+            worker_id_list = []
             return
 
-        worker_embeddings = np.vstack(worker_embeddings).astype("float32")  
-        
-        index = faiss.IndexFlatL2(worker_embeddings.shape[1])  
-        index.add(worker_embeddings)
+        embeddings = np.vstack(embeddings)
+        embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
 
-        print(f"FAISS index updated with {worker_embeddings.shape[0]} workers.")
-    
+        index = faiss.IndexFlatL2(embeddings.shape[1])
+        index.add(embeddings)
+
+        worker_id_list = [w.id for w in workers]
+        print(f"✅ FAISS index built with {len(worker_id_list)} workers.")
+
     except Exception as e:
-        print(f"Error updating FAISS index: {e}")
+        print(f"❌ Error building FAISS index: {e}")
         index = None
+        worker_id_list = []
 
-update_faiss_index()
+build_faiss_index()
 
 @api_view(["POST"])
 def worker_registration(request):
-    if request.method == "POST":
-        name = request.data.get("name")
-        image = request.FILES.get("image")
+    name = request.data.get("name")
+    image = request.FILES.get("image")
 
-        if not name or not image:
-            return JsonResponse({"message": "Name and image are required.", "success": False}, status=status.HTTP_400_BAD_REQUEST)
+    if not name or not image:
+        return JsonResponse({"message": "Name and image are required.", "success": False}, status=status.HTTP_400_BAD_REQUEST)
 
+    try:
         img = Image.open(image).convert("RGB")
         face = mtcnn(img)
         if face is None:
             return JsonResponse({"message": "No face detected.", "success": False}, status=status.HTTP_404_NOT_FOUND)
 
-        embedding = facenet(face.unsqueeze(0)).detach().numpy().tolist()
+        embedding = facenet(face.unsqueeze(0)).detach().numpy()
+        embedding /= np.linalg.norm(embedding)
+        Worker.objects.create(name=name, face_encoding=embedding.tolist())
 
-        Worker.objects.create(name=name, face_encoding=embedding)
+        build_faiss_index()
 
-        update_faiss_index()
-        return JsonResponse({"message": f"Worker {name} registered successfully!", "success": True}, status=status.HTTP_200_OK)
-        
+        return JsonResponse({"message": f"Worker '{name}' registered successfully.", "success": True}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return JsonResponse({"message": str(e), "success": False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(["POST"])
 def post_face_to_compare(request):
-    if request.method == "POST":
-        img = request.FILES.get("image")
-        if not img:
-            return JsonResponse({"message": "Image is required.", "matchFound": False, "success": False}, status=status.HTTP_400_BAD_REQUEST)
+    image = request.FILES.get("image")
+    if not image:
+        return JsonResponse({"message": "Image is required.", "matchFound": False, "success": False}, status=status.HTTP_400_BAD_REQUEST)
 
-        img = Image.open(img).convert("RGB")
+    if index is None or len(worker_id_list) == 0:
+        return JsonResponse({"message": "No registered workers to compare.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        img = Image.open(image).convert("RGB")
         face = mtcnn(img)
         if face is None:
             return JsonResponse({"message": "No face detected.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
-        uploaded_embedding = facenet(face.unsqueeze(0)).detach().numpy()[0] 
+        uploaded_embedding = facenet(face.unsqueeze(0)).detach().numpy().astype("float32")
         uploaded_embedding /= np.linalg.norm(uploaded_embedding)
 
-        workers = Worker.objects.all()
-        if not workers:
-            return JsonResponse({"message": "No registered workers available for comparison.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
+        D, I = index.search(uploaded_embedding, 1)
+        best_distance = float(D[0][0])
+        best_idx = I[0][0]
 
-        best_distance = float("inf")
-        best_worker = None
-        threshold = 0.75
-
-        for worker in workers:
-            try:
-                worker_embedding = np.array(worker.face_encoding)
-                worker_embedding /= np.linalg.norm(worker_embedding)
-                distance = np.linalg.norm(uploaded_embedding - worker_embedding)
-            
-                if distance < best_distance:
-                    best_distance = distance
-                    best_worker = worker
-            except Exception as e:
-                print(f"Error processing worker {worker.name}: {e}")
-                continue
-        
-        # print(best_distance)
-        # print(best_worker)
-        
-        update_faiss_index()
-
-        if best_worker and best_distance < threshold:
-            return JsonResponse({"matched_worker": WorkerSerializer(best_worker).data,"distance": round(best_distance, 4), "matchFound": True, "success": True}, status=status.HTTP_200_OK)
+        threshold = 0.75 
+        if best_distance < threshold:
+            matched_worker_id = worker_id_list[best_idx]
+            matched_worker = Worker.objects.get(id=matched_worker_id)
+            data = WorkerSerializer(matched_worker).data
+            return JsonResponse({
+                "matched_worker": data,
+                "distance": round(best_distance, 4),
+                "matchFound": True,
+                "success": True
+            }, status=status.HTTP_200_OK)
 
         else:
             return JsonResponse({"message": "No match found.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        return JsonResponse({"message": str(e), "matchFound": False, "success": False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
