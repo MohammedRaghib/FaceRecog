@@ -3,8 +3,6 @@
 import os
 import sys
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'faceProj.settings')

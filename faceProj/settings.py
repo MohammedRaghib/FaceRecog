@@ -23,9 +23,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-uxik%3bu4113c^aiuwws^i!aj6o7vj2!i08@o)zp^ju+d$o7i1'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.trycloudflare.com']
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+ALLOWED_HOSTS = [
+    'localhost', 
+    '127.0.0.1', 
+    '.trycloudflare.com', 
+    '192.168.1.105'
+]
 
 
 # Application definition
