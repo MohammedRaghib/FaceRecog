@@ -28,10 +28,7 @@ DEBUG = True
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 ALLOWED_HOSTS = [
-    'localhost', 
-    '127.0.0.1', 
-    '.trycloudflare.com', 
-    '192.168.1.105'
+    '*'
 ]
 
 
