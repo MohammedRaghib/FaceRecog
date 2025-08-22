@@ -2,22 +2,51 @@ from rest_framework.decorators import api_view
 from rest_framework import status
 from django.http import JsonResponse
 from PIL import Image
-
 from facenet_pytorch import InceptionResnetV1, MTCNN
 from .models import Worker
 from .serializers import WorkerSerializer
-
 import numpy as np
 import faiss
+import threading
+import os
+
+INDEX_FILE = "faces.index"
 
 facenet = InceptionResnetV1(pretrained="vggface2").eval()
-mtcnn = MTCNN()
+mtcnn = MTCNN(keep_all=True)
 
 index = None
 worker_id_list = []
+index_lock = threading.Lock() 
+
+
+def normalize_embeddings(embeddings: np.ndarray) -> np.ndarray:
+    """Row-wise normalization for cosine similarity."""
+    return embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+
+def save_index():
+    """Save FAISS index and worker IDs to disk."""
+    with index_lock:
+        if index is not None:
+            faiss.write_index(index, INDEX_FILE)
+            np.save("worker_ids.npy", np.array(worker_id_list))
+            print(f"💾 FAISS index saved with {len(worker_id_list)} workers.")
+
+
+def load_index():
+    """Load FAISS index from disk, fallback to rebuild if missing."""
+    global index, worker_id_list
+    if os.path.exists(INDEX_FILE) and os.path.exists("worker_ids.npy"):
+        index = faiss.read_index(INDEX_FILE)
+        worker_id_list = np.load("worker_ids.npy").tolist()
+        print(f"🔄 FAISS index loaded with {len(worker_id_list)} workers.")
+        return True
+    return False
+
 
 def build_faiss_index():
-    """Builds the FAISS index with current worker embeddings."""
+    """Rebuild FAISS index from the database (used on first start or corruption)."""
     global index, worker_id_list
 
     workers = Worker.objects.exclude(face_encoding=None)
@@ -26,28 +55,21 @@ def build_faiss_index():
         worker_id_list = []
         return
 
-    try:
-        embeddings = [np.array(w.face_encoding, dtype='float32') for w in workers]
-        if not embeddings:
-            index = None
-            worker_id_list = []
-            return
+    embeddings = [np.array(w.face_encoding, dtype="float32") for w in workers]
+    embeddings = np.vstack(embeddings)
+    embeddings = normalize_embeddings(embeddings)
 
-        embeddings = np.vstack(embeddings)
-        embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
-
-        index = faiss.IndexFlatL2(embeddings.shape[1])
+    with index_lock:
+        index = faiss.IndexFlatIP(embeddings.shape[1])
         index.add(embeddings)
-
         worker_id_list = [w.id for w in workers]
-        print(f"✅ FAISS index built with {len(worker_id_list)} workers.")
 
-    except Exception as e:
-        print(f"❌ Error building FAISS index: {e}")
-        index = None
-        worker_id_list = []
+    save_index()
 
-build_faiss_index()
+
+if not load_index():
+    build_faiss_index()
+
 
 @api_view(["POST"])
 def worker_registration(request):
@@ -59,19 +81,30 @@ def worker_registration(request):
 
     try:
         img = Image.open(image).convert("RGB")
-        face = mtcnn(img)
-        if face is None:
+        faces, probs = mtcnn(img, return_prob=True)
+        if faces is None or len(faces) == 0:
             return JsonResponse({"message": "No face detected.", "success": False}, status=status.HTTP_404_NOT_FOUND)
 
-        embedding = facenet(face.unsqueeze(0)).detach().numpy()
-        embedding /= np.linalg.norm(embedding)
-        Worker.objects.create(name=name, face_encoding=embedding.tolist())
+        best_idx = np.argmax(probs)
+        face = faces[best_idx]
 
-        build_faiss_index()
+        embedding = facenet(face.unsqueeze(0)).detach().numpy().astype("float32")
+        embedding = normalize_embeddings(embedding)
+
+        worker = Worker.objects.create(name=name, face_encoding=embedding.tolist())
+
+        with index_lock:
+            if index is None:
+                build_faiss_index()
+            else:
+                index.add(embedding)
+                worker_id_list.append(worker.id)
+                save_index()
 
         return JsonResponse({"message": f"Worker '{name}' registered successfully.", "success": True}, status=status.HTTP_200_OK)
     except Exception as e:
         return JsonResponse({"message": str(e), "success": False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 @api_view(["POST"])
 def post_face_to_compare(request):
@@ -84,29 +117,33 @@ def post_face_to_compare(request):
 
     try:
         img = Image.open(image).convert("RGB")
-        face = mtcnn(img)
-        if face is None:
+        faces, probs = mtcnn(img, return_prob=True)
+        if faces is None or len(faces) == 0:
             return JsonResponse({"message": "No face detected.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
-        uploaded_embedding = facenet(face.unsqueeze(0)).detach().numpy().astype("float32")
-        uploaded_embedding /= np.linalg.norm(uploaded_embedding)
+        best_idx = np.argmax(probs)
+        face = faces[best_idx]
 
-        D, I = index.search(uploaded_embedding, 1)
-        best_distance = float(D[0][0])
+        uploaded_embedding = facenet(face.unsqueeze(0)).detach().numpy().astype("float32")
+        uploaded_embedding = normalize_embeddings(uploaded_embedding)
+
+        with index_lock:
+            similarity, I = index.search(uploaded_embedding, 1)
+
+        best_similarity = float(similarity[0][0])
         best_idx = I[0][0]
 
-        threshold = 0.75 
-        if best_distance < threshold:
+        threshold = 0.7
+        if best_similarity >= threshold:
             matched_worker_id = worker_id_list[best_idx]
             matched_worker = Worker.objects.get(id=matched_worker_id)
             data = WorkerSerializer(matched_worker).data
             return JsonResponse({
                 "matched_worker": data,
-                "distance": round(best_distance, 4),
+                "similarity": round(best_similarity, 4),
                 "matchFound": True,
                 "success": True
             }, status=status.HTTP_200_OK)
-
         else:
             return JsonResponse({"message": "No match found.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
