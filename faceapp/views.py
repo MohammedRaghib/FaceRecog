@@ -80,6 +80,7 @@ def worker_registration(request):
         return JsonResponse({"message": "Name and image are required.", "success": False}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
+        image.seek(0)
         img = Image.open(image).convert("RGB")
         faces, probs = mtcnn(img, return_prob=True)
         if faces is None or len(faces) == 0:
@@ -116,6 +117,7 @@ def post_face_to_compare(request):
         return JsonResponse({"message": "No registered workers to compare.", "matchFound": False, "success": False}, status=status.HTTP_404_NOT_FOUND)
 
     try:
+        image.seek(0)
         img = Image.open(image).convert("RGB")
         faces, probs = mtcnn(img, return_prob=True)
         if faces is None or len(faces) == 0:
