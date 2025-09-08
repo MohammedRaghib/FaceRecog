@@ -1,7 +1,9 @@
 from django.urls import path
-from . import views
+from .views import FaceVerifyView, FaceRegisterView, FaceIdentifyView, FaceMultiIdentifyView
 
 urlpatterns = [
-    path("register_worker/", views.worker_registration, name="register"),
-    path("check_face/", views.post_face_to_compare, name="check_face"),
+    path("face/verify/", FaceVerifyView.as_view()),
+    path("face/register/", FaceRegisterView.as_view()),
+    path("face/identify/", FaceIdentifyView.as_view()),
+    path("face/check-multi/", FaceMultiIdentifyView.as_view()),
 ]
